@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // Configuration
-    const API_BASE_URL = ''; // EDIT THIS: e.g. 'https://your-backend.onrender.com'
+    const API_BASE_URL = 'https://bairan-effect-4hwe.onrender.com'; // Live Render Backend
 
     // Elements
     const generationForm = document.getElementById('generationForm');
@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statusTitle.textContent = "Synthesis Ready";
         logContent.textContent = "Project finalized successfully.";
         resultsArea.classList.remove('hidden');
-        downloadBtn.href = url;
+        downloadBtn.href = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
     }
 
     // Dynamic Scroll Animations
