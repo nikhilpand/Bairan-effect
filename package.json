@@ -9,7 +9,7 @@
     "step3": "node step3-add-borders.js",
     "step4": "node step4-compose-video.js",
     "slideshow": "node create-middle-slideshow.js",
-    "start": "node server.js"
+    "start": "node --max-old-space-size=450 server.js"
   },
   "dependencies": {
     "@imgly/background-removal-node": "^1.2.3",

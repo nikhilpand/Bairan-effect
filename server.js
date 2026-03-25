@@ -22,7 +22,11 @@ if (fs.existsSync(TASKS_FILE)) {
 }
 
 const app = express();
-app.use(cors()); // Enable CORS for all origins (or you can restrict it later)
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.static('public')); // Serve frontend
 app.use('/output', express.static(path.join(__dirname, 'output')));
