@@ -13,8 +13,11 @@
   },
   "dependencies": {
     "@imgly/background-removal-node": "^1.2.3",
+    "cors": "^2.8.5",
     "express": "^4.22.1",
     "ffmpeg-transitions": "^1.0.8",
+    "firebase": "^12.11.0",
+    "firebase-admin": "^13.7.0",
     "fluent-ffmpeg": "^2.1.2",
     "form-data": "^4.0.0",
     "heic-convert": "^2.1.0",

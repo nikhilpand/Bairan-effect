@@ -1,180 +1,257 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const uploadForm = document.getElementById('uploadForm');
+    // Configuration
+    const API_BASE_URL = ''; // EDIT THIS: e.g. 'https://your-backend.onrender.com'
+
+    // Elements
+    const generationForm = document.getElementById('generationForm');
     const videoInput = document.getElementById('videoInput');
     const photosInput = document.getElementById('photosInput');
-    const videoDropZone = document.getElementById('videoDropZone');
-    const photosDropZone = document.getElementById('photosDropZone');
-    const videoInfo = document.getElementById('videoInfo');
-    const photosInfo = document.getElementById('photosInfo');
+    const videoName = document.getElementById('videoName');
+    const photosName = document.getElementById('photosName');
     const submitBtn = document.getElementById('submitBtn');
-    const statusSection = document.getElementById('statusSection');
+
+    const uploadContainer = document.getElementById('uploadContainer');
+    const processingContainer = document.getElementById('processingContainer');
     const statusTitle = document.getElementById('statusTitle');
-    const progressFill = document.querySelector('.fill');
-    const steps = document.querySelectorAll('.step-item');
-    const resultArea = document.getElementById('resultArea');
+    const requestIdDisplay = document.getElementById('requestId');
+    const logContent = document.getElementById('logContent');
+    const resultsArea = document.getElementById('resultsArea');
     const downloadBtn = document.getElementById('downloadBtn');
-    const resetBtn = document.getElementById('resetBtn');
 
-    // Handle Drop Zones
-    [videoDropZone, photosDropZone].forEach(zone => {
-        zone.addEventListener('click', () => {
-            const input = zone.querySelector('input');
-            input.click();
-        });
-
-        zone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            zone.classList.add('dragover');
-        });
-
-        zone.addEventListener('dragleave', () => {
-            zone.classList.remove('dragover');
-        });
-
-        zone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            zone.classList.remove('dragover');
-            const input = zone.querySelector('input');
-            input.files = e.dataTransfer.files;
-            input.dispatchEvent(new Event('change'));
-        });
-    });
-
+    // File selection display
     videoInput.addEventListener('change', () => {
         if (videoInput.files.length > 0) {
-            videoInfo.textContent = `Selected: ${videoInput.files[0].name}`;
+            videoName.textContent = videoInput.files[0].name;
         }
     });
 
     photosInput.addEventListener('change', () => {
         if (photosInput.files.length > 0) {
-            photosInfo.textContent = `${photosInput.files.length} photos selected`;
+            photosName.textContent = `${photosInput.files.length} Magic Frames selected`;
         }
     });
 
     // Form Submission
-    uploadForm.addEventListener('submit', async (e) => {
+    generationForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        
+
         const formData = new FormData();
         formData.append('video', videoInput.files[0]);
         for (let i = 0; i < photosInput.files.length; i++) {
             formData.append('photos', photosInput.files[i]);
         }
 
-        // UI State: Loading
+        // UI Transition to Processing
         submitBtn.disabled = true;
-        submitBtn.classList.add('loading');
-        statusSection.classList.remove('hidden');
-        resultArea.classList.add('hidden');
-        resetProgress();
-
-        // Start Fake Progress
-        const progressInterval = simulateProgress();
+        submitBtn.querySelector('.btn-text').textContent = "UPLOADING...";
 
         try {
-            const response = await fetch('/upload-and-process', {
+            const response = await fetch(`${API_BASE_URL}/upload-and-process`, {
                 method: 'POST',
                 body: formData
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Upload failed');
-            }
+            if (!response.ok) throw new Error('Engine rejected the project');
 
             const { requestId } = await response.json();
-            
-            // Polling loop
-            const poll = async () => {
-                try {
-                    const statusRes = await fetch(`/status/${requestId}`);
-                    const data = await statusRes.json();
-                    
-                    if (data.status === 'completed') {
-                        clearInterval(progressInterval);
-                        completeProgress();
-                        showResult(data.result.downloadUrl);
-                    } else if (data.status === 'failed') {
-                        clearInterval(progressInterval);
-                        throw new Error(data.error || 'Processing failed');
-                    } else {
-                        // Still processing or queued
-                        setTimeout(poll, 2000); // Poll every 2 seconds
-                    }
-                } catch (err) {
-                    clearInterval(progressInterval);
-                    alert(`Error: ${err.message}`);
-                    submitBtn.disabled = false;
-                    submitBtn.classList.remove('loading');
-                    statusSection.classList.add('hidden');
-                }
-            };
-            
-            poll();
+
+            // Switch view
+            uploadContainer.classList.add('hidden');
+            processingContainer.classList.remove('hidden');
+            requestIdDisplay.textContent = `ID: ${requestId}`;
+
+            startPolling(requestId);
 
         } catch (error) {
-            clearInterval(progressInterval);
-            alert(`Error: ${error.message}`);
+            alert(error.message);
             submitBtn.disabled = false;
-            submitBtn.classList.remove('loading');
-            statusSection.classList.add('hidden');
+            submitBtn.querySelector('.btn-text').textContent = "START SYNTHESIS";
         }
     });
 
-    resetBtn.addEventListener('click', () => {
-        uploadForm.reset();
-        videoInfo.textContent = '';
-        photosInfo.textContent = '';
-        statusSection.classList.add('hidden');
+    function startPolling(requestId) {
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/status/${requestId}`);
+                if (!res.ok) return;
+                const data = await res.json();
+
+                if (data.progress !== undefined) {
+                    updateUI(data.progress, data.message);
+                    if (data.progress > 0 && data.progress < 100) {
+                        updateTabTitle(true);
+                    }
+                }
+
+                if (data.status === 'completed') {
+                    clearInterval(interval);
+                    updateTabTitle(false);
+                    showFinalResult(data.result.fileUrl);
+                    triggerSuccessSparkles();
+                } else if (data.status === 'failed') {
+                    clearInterval(interval);
+                    handleFailure(data.error);
+                }
+            } catch (err) {
+                console.error('Connection lost:', err);
+            }
+        }, 2000);
+    }
+
+    function handleFailure(error) {
+        updateTabTitle(false);
+        statusTitle.textContent = "Synthesis Failed";
+        logContent.textContent = error || "Unknown engine error";
         submitBtn.disabled = false;
-        submitBtn.classList.remove('loading');
+        submitBtn.querySelector('.btn-text').textContent = "RETRY SYNTHESIS";
+    }
+
+    function updateUI(percent, message) {
+        if (message) logContent.textContent = message;
+
+        // Update steps based on progress percentages
+        const steps = ['extraction', 'segmentation', 'stitching', 'finalization'];
+        const currentStepIdx = Math.floor(percent / 25);
+
+        steps.forEach((step, idx) => {
+            const el = document.getElementById(`step_${step}`);
+            if (!el) return;
+
+            el.classList.remove('active', 'done');
+            if (idx < currentStepIdx) {
+                el.classList.add('done');
+            } else if (idx === currentStepIdx) {
+                el.classList.add('active');
+            }
+        });
+
+        // Dynamic Title
+        if (percent < 25) statusTitle.textContent = "Extracting...";
+        else if (percent < 50) statusTitle.textContent = "Segmenting...";
+        else if (percent < 75) statusTitle.textContent = "Stitching...";
+        else statusTitle.textContent = "Rendering...";
+    }
+
+    function showFinalResult(url) {
+        statusTitle.textContent = "Synthesis Ready";
+        logContent.textContent = "Project finalized successfully.";
+        resultsArea.classList.remove('hidden');
+        downloadBtn.href = url;
+    }
+
+    // Dynamic Scroll Animations
+    const container = document.querySelector('.container');
+    const hero = document.querySelector('.hero');
+    const zenCard = document.querySelector('.zen-card');
+
+    window.addEventListener('scroll', () => {
+        const scrolled = window.pageYOffset;
+        const rate = scrolled * 0.15;
+
+        if (hero) {
+            hero.style.transform = `translate3d(0px, ${rate}px, 0px)`;
+            hero.style.opacity = 1 - (scrolled / 400);
+        }
+
+        if (zenCard) {
+            const scale = Math.max(0.95, 1 - (scrolled / 2000));
+            zenCard.style.transform = `scale(${scale})`;
+            zenCard.style.boxShadow = `0 ${40 + (scrolled / 10)}px ${100 + (scrolled / 5)}px -20px rgba(0,0,0,0.05)`;
+        }
     });
 
-    function resetProgress() {
-        progressFill.style.width = '0%';
-        steps.forEach(s => s.classList.remove('active', 'done'));
-    }
+    // Welcome Screen & Studio Entrance
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    const enterBtn = document.getElementById('enterBtn');
+    const bgMusic = document.getElementById('bgMusic');
+    const bgVideo = document.getElementById('bgVideo');
 
-    function simulateProgress() {
-        let percent = 0;
-        const interval = setInterval(() => {
-            if (percent < 90) {
-                percent += Math.random() * 2;
-                progressFill.style.width = `${percent}%`;
-                
-                // Update steps based on percentage
-                if (percent > 10) setActiveStep(1);
-                if (percent > 30) setActiveStep(2);
-                if (percent > 60) setActiveStep(3);
-                if (percent > 80) setActiveStep(4);
-            }
-        }, 1500);
-        return interval;
-    }
+    if (enterBtn && welcomeScreen) {
+        enterBtn.addEventListener('click', () => {
+            console.log("Studio Entrance Triggered");
+            welcomeScreen.classList.add('fade-out');
 
-    function setActiveStep(stepNum) {
-        steps.forEach((s, idx) => {
-            if (idx + 1 < stepNum) {
-                s.classList.add('done');
-                s.classList.remove('active');
-            } else if (idx + 1 === stepNum) {
-                s.classList.add('active');
+            // Trigger Studio Atmosphere
+            if (bgMusic) {
+                bgMusic.muted = false; // Just in case
+                bgMusic.play().catch(e => console.error("Audio failed:", e));
             }
+            if (bgVideo) {
+                bgVideo.muted = true; // FORCE MUTE
+                bgVideo.play().catch(e => console.error("Video failed:", e));
+            }
+
+            // Remove overlay from DOM after transition
+            setTimeout(() => {
+                welcomeScreen.remove();
+                document.body.style.overflowY = 'auto'; // Re-enable scrolling
+                initializeStudioDetails();
+            }, 1200);
         });
     }
 
-    function completeProgress() {
-        progressFill.style.width = '100%';
-        steps.forEach(s => {
-            s.classList.add('done');
-            s.classList.remove('active');
+    function initializeStudioDetails() {
+        // Custom Ethereal Cursor
+        const cursor = document.createElement('div');
+        cursor.className = 'custom-cursor';
+        document.body.appendChild(cursor);
+
+        document.addEventListener('mousemove', (e) => {
+            requestAnimationFrame(() => {
+                cursor.style.left = `${e.clientX - 10}px`;
+                cursor.style.top = `${e.clientY - 10}px`;
+            });
+        });
+
+        document.querySelectorAll('button, a, .drop-zone, input').forEach(el => {
+            el.addEventListener('mouseenter', () => cursor.classList.add('hover'));
+            el.addEventListener('mouseleave', () => cursor.classList.remove('hover'));
         });
     }
 
-    function showResult(url) {
-        statusTitle.textContent = "Processing Complete!";
-        resultArea.classList.remove('hidden');
-        downloadBtn.href = url;
+    function triggerSuccessSparkles() {
+        const btn = document.getElementById('downloadBtn');
+        const rect = btn.getBoundingClientRect();
+        for (let i = 0; i < 30; i++) {
+            const s = document.createElement('div');
+            s.className = 'sparkle';
+            s.style.background = ['#B5D5E3', '#DCA8AF', '#FFE5D9', '#FBF7D5'][Math.floor(Math.random() * 4)];
+            s.style.left = `${rect.left + rect.width / 2}px`;
+            s.style.top = `${rect.top + rect.height / 2}px`;
+            s.style.setProperty('--tx', `${(Math.random() - 0.5) * 200}px`);
+            s.style.setProperty('--ty', `${(Math.random() - 0.5) * 200}px`);
+            document.body.appendChild(s);
+            setTimeout(() => s.remove(), 1500);
+        }
+    }
+
+    // Dynamic Tab Logic
+    const originalTitle = document.title;
+    function updateTabTitle(isProcessing) {
+        document.title = isProcessing ? `✨ Rendering... | Bairan` : originalTitle;
+    }
+
+    // Audio Controls
+    const muteBtn = document.getElementById('muteBtn');
+    const volumeSlider = document.getElementById('volumeSlider');
+
+    if (bgMusic && muteBtn && volumeSlider) {
+        bgMusic.volume = volumeSlider.value;
+
+        muteBtn.addEventListener('click', () => {
+            bgMusic.muted = !bgMusic.muted;
+            muteBtn.textContent = bgMusic.muted ? '🔇' : '🔊';
+        });
+
+        volumeSlider.addEventListener('input', (e) => {
+            bgMusic.volume = e.target.value;
+            if (bgMusic.volume > 0) {
+                bgMusic.muted = false;
+                muteBtn.textContent = '🔊';
+            } else {
+                bgMusic.muted = true;
+                muteBtn.textContent = '🔇';
+            }
+        });
     }
 });

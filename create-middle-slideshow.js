@@ -4,7 +4,7 @@ const fs = require('fs');
 const heicConvert = require('heic-convert');
 const sharp = require('sharp');
 
-const FFMPEG = 'ffmpeg';
+const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const IMAGES_DIR = process.argv[2] || 'middle-images';
 const OUTPUT = process.argv[3] || path.join(__dirname, 'output/middle-slideshow.mp4');
 const DURATION = 9;
@@ -31,7 +31,7 @@ async function createSlideshow() {
   console.log(`Found ${files.length} images`);
   console.log(`Each image displays for ${IMAGE_DURATION}s`);
 
-  const totalFrames = Math.ceil(DURATION / IMAGE_DURATION);
+  let totalFrames = Math.ceil(DURATION / IMAGE_DURATION);
   console.log(`Total frames: ${totalFrames}\n`);
 
   const tempDir = path.join(OUTPUT_DIR, 'temp-images');
@@ -85,7 +85,7 @@ async function createSlideshow() {
   // We need to use img_XX where XX starts from 01 (matching idx+1 in convertImage)
   for (let i = 0; i < totalFrames; i++) {
     const imgIndex = (i % files.length) + 1;
-    const imgPath = path.resolve(tempDir, `img_${String(imgIndex).padStart(2, '0')}.jpg`);
+    const imgPath = path.resolve(tempDir, `img_${String(imgIndex).padStart(2, '0')}.jpg`).replace(/\\/g, '/');
     if (fs.existsSync(imgPath)) {
       listContent += `file '${imgPath.replace(/'/g, "'\\''")}'\n`;
       listContent += `duration ${IMAGE_DURATION}\n`;
@@ -93,7 +93,7 @@ async function createSlideshow() {
   }
   // FFmpeg concat demuxer requirement: repeat the last file entry without duration
   const lastImgIndex = (totalFrames % files.length) + 1;
-  const lastImg = path.resolve(tempDir, `img_${String(lastImgIndex).padStart(2, '0')}.jpg`);
+  const lastImg = path.resolve(tempDir, `img_${String(lastImgIndex).padStart(2, '0')}.jpg`).replace(/\\/g, '/');
   if (fs.existsSync(lastImg)) {
     listContent += `file '${lastImg.replace(/'/g, "'\\''")}'\n`;
   }

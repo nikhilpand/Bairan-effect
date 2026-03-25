@@ -1,104 +1,122 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bairan Effect | GenZ Video Magic</title>
+    <title>Bairan | Studio Edition</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;900&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Inter:wght@200;300;400&display=swap"
+        rel="stylesheet">
+    <!-- CDN Assets: Cloudinary distribution for high-speed loading -->
+    <link rel="preload" as="video" href="https://res.cloudinary.com/dn8ybejwh/video/upload/v1774424567/background_cubvbv.mp4" type="video/mp4" id="videoPreload">
+    <link rel="preload" as="audio" href="https://res.cloudinary.com/dn8ybejwh/video/upload/v1774424587/barain_ci0yxy.mp3" type="audio/mpeg" id="audioPreload">
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
 </head>
+
 <body>
-    <!-- Video Background -->
-    <div class="video-bg-container">
-        <video autoplay muted loop playsinline class="video-bg">
-            <source src="Brain-madingvideo.mp4" type="video/mp4">
-        </video>
-        <div class="video-overlay"></div>
+    <div id="welcomeScreen" class="welcome-overlay">
+        <div class="welcome-content">
+            <div class="welcome-badge">STUDIO ZEN</div>
+            <h1 class="welcome-title">Bairan</h1>
+            <p class="welcome-tag">ENGINEERED BY NIKHIL PANDEY (▀̿Ĺ̯▀̿ ̿)</p>
+            <button id="enterBtn" class="enter-button">ENTER STUDIO</button>
+        </div>
+    </div>
+
+    <div class="bg-animate"></div>
+    <video id="bgVideo" autoplay muted loop playsinline class="bg-video">
+        <source src="https://res.cloudinary.com/dn8ybejwh/video/upload/v1774424567/background_cubvbv.mp4" type="video/mp4">
+    </video>
+
+    <audio id="bgMusic" src="https://res.cloudinary.com/dn8ybejwh/video/upload/v1774424587/barain_ci0yxy.mp3" loop></audio>
+
+    <div class="audio-controls">
+        <button id="muteBtn" class="audio-toggle">🔊</button>
+        <div class="volume-slider-wrapper">
+            <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.2">
+        </div>
+    </div>
+
+    <div class="dev-signature">
+        <span class="sig-label">DESIGNED & ENGINEERED BY</span>
+        <span class="sig-name">NIKHIL PANDEY</span>
     </div>
 
     <main class="container">
-        <header class="hero">
-            <div class="badge">V2.0 LIVE</div>
-            <h1 class="glitch-text" data-text="BAIRAN EFFECT">BAIRAN EFFECT</h1>
-            <p class="subtitle">Insane freeze-frame magic. 60FPS. Fully automated.</p>
-        </header>
+        <div class="hero">
+            <h1 class="title-text">Bairan</h1>
+            <p class="subtitle">Ethereal synthesis. 60fps. Local only.</p>
+        </div>
 
-        <section class="glass-container">
-            <form id="uploadForm">
-                <div class="upload-grid">
-                    <div class="upload-box" id="videoBox">
-                        <div class="box-header">
-                            <span class="step-num">01</span>
-                            <h3>Source Video</h3>
-                        </div>
-                        <div class="drop-area" id="videoDropZone">
-                            <div class="inner-icon">⚡</div>
-                            <p>Drop Video or <span>Click</span></p>
+        <div class="zen-card">
+            <!-- Input Phase -->
+            <div id="uploadContainer">
+                <form id="generationForm">
+                    <div class="upload-stack">
+                        <div class="upload-group" onclick="document.getElementById('videoInput').click()">
+                            <h3>Base Video</h3>
+                            <p class="upload-instruction">MP4 preferred &bull; Max 50MB /5s</p>
+                            <div class="drop-zone">
+                                <span class="icon">🎬</span>
+                                <p>Select or <b>Drop Video</b></p>
+                                <div id="videoName" class="file-name"></div>
+                            </div>
                             <input type="file" id="videoInput" name="video" accept="video/*" required hidden>
-                            <div class="file-tag" id="videoInfo"></div>
                         </div>
-                    </div>
 
-                    <div class="upload-box" id="photosBox">
-                        <div class="box-header">
-                            <span class="step-num">02</span>
-                            <h3>Story Photos</h3>
-                        </div>
-                        <div class="drop-area" id="photosDropZone">
-                            <div class="inner-icon">🔥</div>
-                            <p>Select Images or <span>Click</span></p>
+                        <div class="upload-group" onclick="document.getElementById('photosInput').click()">
+                            <h3>Magic Frames</h3>
+                            <p class="upload-instruction">JPG/PNG &bull; Up to 100 frames</p>
+                            <div class="drop-zone">
+                                <span class="icon">📸</span>
+                                <p>Select or <b>Drop Images</b></p>
+                                <div id="photosName" class="file-name"></div>
+                            </div>
                             <input type="file" id="photosInput" name="photos" accept="image/*" multiple required hidden>
-                            <div class="file-tag" id="photosInfo"></div>
                         </div>
                     </div>
-                </div>
 
-                <div class="cta-wrapper">
-                    <button type="submit" id="submitBtn" class="neon-button">
-                        <span class="btn-text">GENERATE MAGIC</span>
+                    <button type="submit" class="zen-button" id="submitBtn">
+                        <span class="btn-text">START SYNTHESIS</span>
                         <div class="orbit-loader"></div>
                     </button>
-                </div>
-            </form>
-        </section>
+                </form>
+            </div>
 
-        <section id="statusSection" class="glass-container status-panel hidden">
-            <div class="status-inner">
-                <div class="status-header">
-                    <h2 id="statusTitle">Cooking your video...</h2>
-                    <div class="neon-progress">
-                        <div class="bar">
-                            <div class="fill"></div>
-                        </div>
+            <!-- Processing Phase -->
+            <div id="processingContainer" class="hidden">
+                <div class="processing-view">
+                    <h2 id="statusTitle">Rendering...</h2>
+                    <span class="request-badge" id="requestId">ID: ----</span>
+
+                    <div class="progress-rail">
+                        <div class="rail-step" id="step_extraction">1</div>
+                        <div class="rail-step" id="step_segmentation">2</div>
+                        <div class="rail-step" id="step_stitching">3</div>
+                        <div class="rail-step" id="step_finalization">4</div>
                     </div>
-                </div>
-                
-                <div class="step-list">
-                    <div class="step-item" data-step="1">Extracting</div>
-                    <div class="step-item" data-step="2">Background</div>
-                    <div class="step-item" data-step="3">Stickerify</div>
-                    <div class="step-item" data-step="4">Mastering</div>
-                </div>
 
-                <div id="resultArea" class="hidden result-reveal">
-                    <div class="win-icon">👑</div>
-                    <h3>GOATED! Video is ready.</h3>
-                    <div class="result-actions">
-                        <a id="downloadBtn" href="#" class="glow-link" download>GET VIDEO</a>
-                        <button id="resetBtn" class="ghost-btn">New Run</button>
+                    <div class="log-line" id="logContent">Initializing engine...</div>
+
+                    <div id="resultsArea" class="result-pills hidden">
+                        <a href="#" id="downloadBtn" class="pill-button" download>DOWNLOAD MAGIC</a>
+                        <a href="." class="reset-btn">NEW PROJECT</a>
                     </div>
                 </div>
             </div>
-        </section>
+        </div>
     </main>
 
-    <footer class="modern-footer">
-        <div class="footer-blur"></div>
-        <p>made by <a href="https://www.instagram.com/developer_rahul_/" target="_blank" class="dev-link">developer rahul</a></p>
+    <footer class="footer">
+        BAIRAN EFFECT &bull; NIKHIL PANDEY(▀̿Ĺ̯▀̿ ̿) &bull; LOCAL EMPOWERMENT
     </footer>
 
     <script src="script.js"></script>
 </body>
+
 </html>

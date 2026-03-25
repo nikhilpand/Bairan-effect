@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const { execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -6,16 +7,37 @@ const https = require('https');
 const http = require('http');
 const FormData = require('form-data');
 const multer = require('multer');
+const tasks = {};
 
 const app = express();
+app.use(cors()); // Enable CORS for all origins (or you can restrict it later)
 app.use(express.json({ limit: '100mb' }));
 app.use(express.static('public')); // Serve frontend
+app.use('/output', express.static(path.join(__dirname, 'output')));
 
-const FFMPEG = 'ffmpeg';
+const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
+const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
 const TEMP_BASE_DIR = 'temp-requests';
-let isProcessing = false; // Simple lock for sequential processing to avoid OOM in cloud
+let isProcessing = false; 
 const processingQueue = [];
-const taskStatus = new Map(); // Store status of each requestId
+
+console.log('--- SYSTEM CHECK ---');
+console.log(`FFMPEG_PATH: ${process.env.FFMPEG_PATH || '(not set - using default "ffmpeg")'}`);
+console.log(`FFPROBE_PATH: ${process.env.FFPROBE_PATH || '(not set - using default "ffprobe")'}`);
+if (process.env.FFMPEG_PATH && !fs.existsSync(process.env.FFMPEG_PATH)) {
+  console.log('⚠️ WARNING: FFMPEG_PATH points to a file that does NOT exist on disk!');
+}
+console.log('--------------------');
+
+/**
+ * Update task status locally
+ */
+function updateTaskStatus(requestId, data) {
+  if (!tasks[requestId]) tasks[requestId] = { createdAt: Date.now() };
+  tasks[requestId] = { ...tasks[requestId], ...data, updatedAt: Date.now() };
+  // Log to server console so user can see it
+  console.log(`[ID: ${requestId}] -> ${data.status} | ${data.message || ''}`);
+}
 
 if (!fs.existsSync(TEMP_BASE_DIR)) fs.mkdirSync(TEMP_BASE_DIR, { recursive: true });
 
@@ -102,48 +124,10 @@ function generateRequestId() {
   return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-async function uploadToStoreFile(filePath, userId) {
-  let url = process.env.STORAGE_URL; // Fixed: use STORAGE_URL instead of PORT
-  if (!url || url === '{api_url/store-file}') {
-     console.warn('STORAGE_URL not set or default. Using local fallback.');
-     return { fileUrl: `/download/${path.basename(filePath)}`, fileId: 'local' };
-  }
-  
-  return new Promise((resolve, reject) => {
-    const form = new FormData();
-    form.append('file', fs.createReadStream(filePath));
-    form.append('userid', userId);
-    
-    const parsedUrl = new URL(url);
-    const protocol = parsedUrl.protocol === 'https:' ? https : http;
-    
-    const options = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-      path: parsedUrl.pathname,
-      method: 'POST',
-      headers: form.getHeaders()
-    };
-    
-    const req = protocol.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            reject(new Error(`Failed to parse response: ${data}`));
-          }
-        } else {
-          reject(new Error(`Upload failed with status ${res.statusCode}: ${data}`));
-        }
-      });
-    });
-    
-    req.on('error', reject);
-    form.pipe(req);
-  });
+async function prepareDownloadLink(filePath, requestId) {
+  const downloadFilename = `final_${requestId}.mp4`;
+  const publicUrl = `/output/${downloadFilename}`;
+  return { fileUrl: publicUrl, fileId: 'local' };
 }
 
 function extractZip(zipPath, destDir) {
@@ -164,14 +148,26 @@ function runStep(stepNum, workDir) {
     
     console.log(`Running step ${stepNum}: ${scriptName}`);
     
+    let errorData = '';
     const proc = spawn('node', [scriptName, workDir], { 
       cwd: __dirname,
-      stdio: 'inherit' 
+      stdio: ['inherit', 'inherit', 'pipe'], // Inheritance for out, pipe for err
+      env: process.env
     });
+
+    if (proc.stderr) {
+      proc.stderr.on('data', (chunk) => {
+        errorData += chunk.toString();
+        process.stderr.write(chunk); // Still show in terminal
+      });
+    }
     
     proc.on('close', (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`Step ${stepNum} failed with code ${code}`));
+      else {
+        const msg = errorData.length > 0 ? errorData.split('\n').filter(l => l.trim()).slice(-2).join(' | ') : `Code ${code}`;
+        reject(new Error(`Step ${stepNum} failed: ${msg}`));
+      }
     });
   });
 }
@@ -238,7 +234,8 @@ async function processVideo(videoPath, isUrl = false, zipPath = null, zipUrl = f
       await new Promise((resolve, reject) => {
         const proc = spawn('node', ['create-middle-slideshow.js', imagesDir, middleSlideshow], { 
           cwd: __dirname,
-          stdio: 'inherit' 
+          stdio: 'inherit',
+          env: process.env
         });
         proc.on('close', (code) => {
           if (code === 0) resolve();
@@ -251,7 +248,8 @@ async function processVideo(videoPath, isUrl = false, zipPath = null, zipUrl = f
       await new Promise((resolve, reject) => {
         const proc = spawn('node', ['create-middle-slideshow.js', imagesDir, middleSlideshow], { 
           cwd: __dirname,
-          stdio: 'inherit' 
+          stdio: 'inherit',
+          env: process.env
         });
         proc.on('close', (code) => {
           if (code === 0) resolve();
@@ -289,32 +287,45 @@ async function processVideo(videoPath, isUrl = false, zipPath = null, zipUrl = f
       throw new Error('Unsupported video format. Use MP4, MOV, or AVI.');
     }
 
+    const ffmpegPath = path.resolve(FFMPEG);
+    if (!fs.existsSync(ffmpegPath)) {
+      throw new Error(`CRITICAL: FFmpeg binary not found at absolute path: ${ffmpegPath}`);
+    }
     const mainVideo = path.join(workDir, 'main-video.MP4');
     
-    // Convert video to MP4 format
-    console.log(`Converting to MP4: ${videoPath}`);
-    await new Promise((resolve, reject) => {
-      const proc = spawn('ffmpeg', [
-        '-i', videoPath,
-        '-c:v', 'libx264',
-        '-c:a', 'aac',
-        '-movflags', '+faststart',
-        '-y',
-        mainVideo
-      ], { stdio: 'inherit' });
-      proc.on('close', (code) => {
-        if (code === 0) {
-          console.log(`✅ Converted to MP4: ${mainVideo}`);
-          resolve();
-        } else {
-          reject(new Error(`Video conversion failed with code ${code}`));
-        }
-      });
+    await updateTaskStatus(requestId, { status: 'converting', progress: 20 });
+    console.log(`Converting: ${videoPath} -> ${mainVideo}`);
+    
+    const { spawnSync } = require('child_process');
+    const convResult = spawnSync(ffmpegPath, [
+      '-i', videoPath,
+      '-c:v', 'libx264',
+      '-c:a', 'aac',
+      '-movflags', '+faststart',
+      '-y',
+      mainVideo
+    ], { 
+      stdio: ['inherit', 'inherit', 'pipe'],
+      env: process.env 
     });
 
+    if (convResult.status !== 0) {
+      const err = convResult.stderr ? convResult.stderr.toString().split('\n').filter(l => l.trim()).slice(-2).join(' | ') : `Code ${convResult.status}`;
+      throw new Error(`Video conversion failed: ${err}`);
+    }
+    
+    console.log(`✅ Converted to MP4: ${mainVideo}`);
+
+    await updateTaskStatus(requestId, { status: 'extracting_frame', progress: 40 });
     await runStep(1, workDir);
+    
+    await updateTaskStatus(requestId, { status: 'removing_bg', progress: 60 });
     await runStep(2, workDir);
+    
+    await updateTaskStatus(requestId, { status: 'adding_borders', progress: 75 });
     await runStep(3, workDir);
+    
+    await updateTaskStatus(requestId, { status: 'composing_video', progress: 90 });
     await runStep(4, workDir);
 
     const finalVideo = path.join(outputDir, 'final-video.mp4');
@@ -326,8 +337,8 @@ async function processVideo(videoPath, isUrl = false, zipPath = null, zipUrl = f
     const downloadPath = path.join(globalOutputDir, downloadFilename);
     fs.copyFileSync(finalVideo, downloadPath);
 
-    console.log('Uploading/Readying final video...');
-    const uploadResult = await uploadToStoreFile(finalVideo, effectiveUserId);
+    console.log('Finalizing video for local download...');
+    const result = await prepareDownloadLink(finalVideo, requestId);
     
     if (isUrl && fs.existsSync(tempVideo)) {
       fs.unlinkSync(tempVideo);
@@ -338,8 +349,8 @@ async function processVideo(videoPath, isUrl = false, zipPath = null, zipUrl = f
 
     return {
       success: true,
-      fileUrl: uploadResult.fileUrl,
-      downloadUrl: `/download/${downloadFilename}`,
+      fileUrl: result.fileUrl,
+      downloadUrl: `/output/${downloadFilename}`,
       requestId: requestId
     };
   } catch (error) {
@@ -365,93 +376,51 @@ app.post('/process', async (req, res) => {
 app.post('/upload-and-process', upload.fields([
   { name: 'video', maxCount: 1 },
   { name: 'photos', maxCount: 100 }
-]), async (req, res) => {
+]), (req, res) => {
   const requestId = req.requestId;
   if (!requestId) return res.status(400).json({ error: 'No files uploaded' });
   const workDir = path.join(TEMP_BASE_DIR, requestId);
 
-  // Initialize status
-  taskStatus.set(requestId, { status: 'queued', progress: 0 });
+  updateTaskStatus(requestId, { status: 'queued', progress: 0, message: 'Request received.' });
 
-  // Add to queue logic
   const processTask = async () => {
     try {
-      taskStatus.set(requestId, { status: 'processing', progress: 10 });
-      console.log(`🚀 Starting processing for ${requestId}...`);
+      updateTaskStatus(requestId, { status: 'processing', progress: 10 });
       const result = await processVideo(null, false, null, false, null, null, workDir);
-      taskStatus.set(requestId, { status: 'completed', result: result });
+      updateTaskStatus(requestId, { status: 'completed', progress: 100, result: result });
       return result;
     } catch (error) {
-       console.error(`❌ Error processing ${requestId}:`, error.message);
-       taskStatus.set(requestId, { status: 'failed', error: error.message });
-       throw error;
+       updateTaskStatus(requestId, { status: 'failed', error: error.message });
     }
   };
 
-  // Simple sequential queue runner
-  const runNextTask = async () => {
-    if (isProcessing || processingQueue.length === 0) return;
-    isProcessing = true;
-    const { task, resolve, reject } = processingQueue.shift();
-    try {
-      const res = await task();
-      resolve(res);
-    } catch (e) {
-      reject(e);
-    } finally {
-      isProcessing = false;
-      runNextTask(); // Run next in queue
-    }
-  };
+  processingQueue.push({ task: processTask, resolve: () => {}, reject: () => {} });
+  
+  if (!isProcessing) {
+    (async function runNext() {
+      if (processingQueue.length === 0) { isProcessing = false; return; }
+      isProcessing = true;
+      const { task } = processingQueue.shift();
+      await task();
+      runNext();
+    })();
+  }
 
-  // Push to queue but DON'T await it here for the HTTP response
-  processingQueue.push({ 
-    task: processTask, 
-    resolve: () => console.log(`✅ ${requestId} done`), 
-    reject: () => console.log(`❌ ${requestId} failed`) 
-  });
-  runNextTask();
-
-  // Respond immediately with the requestId so the frontend can poll
-  res.json({ success: true, requestId: requestId, status: 'queued' });
+  res.json({ success: true, requestId, status: 'queued' });
 });
 
 app.get('/status/:requestId', (req, res) => {
-  const requestId = req.params.requestId;
-  const status = taskStatus.get(requestId);
-  if (!status) return res.status(404).json({ error: 'Task not found' });
-  res.json(status);
+  const task = tasks[req.params.requestId];
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  res.json(task);
 });
 
-app.get('/download/:filename', (req, res) => {
-  const filename = req.params.filename;
-  const filePath = path.join(__dirname, 'output', filename);
-  if (fs.existsSync(filePath)) {
-    res.download(filePath);
-  } else {
-    res.status(404).json({ error: 'File not found' });
-  }
-});
-
-app.get('/status', (req, res) => {
-  res.json({ status: 'running' });
-});
-
-app.get('/health', (req, res) => {
-  res.status(200).send('OK');
-});
-
-// Global Error Handler to catch Multer errors and return JSON
 app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    console.error('❌ Multer Error:', err.message, 'Code:', err.code);
-    return res.status(400).json({ success: false, error: `Upload error: ${err.message}. (Max 100 photos)` });
-  }
-  console.error('❌ Unhandled Server Error:', err.stack);
-  res.status(500).json({ success: false, error: 'Internal Server Error' });
+  console.error('SERVER ERROR:', err);
+  res.status(500).json({ error: err.message });
 });
 
-const PORT = process.env.PORT || process.env.PORT_SERVER || 3005;
+const PORT = process.env.PORT || 3006;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Local Engine running on port ${PORT}`);
 });

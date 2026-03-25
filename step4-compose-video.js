@@ -4,13 +4,17 @@ const path = require('path');
 
 const workDir = process.argv[2] || '.';
 const OUTPUT_DIR = path.join(workDir, 'output');
-const FFMPEG = 'ffmpeg';
+const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
+const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
 const MAIN = path.join(workDir, 'main-video.MP4');
 const MIDDLE_SLIDESHOW = path.join(OUTPUT_DIR, 'middle-slideshow.mp4');
 const MIDDLE_VIDEO = path.join(workDir, 'middle-video.mp4');
 const MIDDLE = fs.existsSync(MIDDLE_SLIDESHOW) ? MIDDLE_SLIDESHOW : MIDDLE_VIDEO;
 const STICKER = path.join(OUTPUT_DIR, 'bordered-image.png');
-const AUDIO_FILE = path.join(workDir, 'barain.mp3');
+let AUDIO_FILE = path.join(workDir, 'barain.mp3');
+if (!fs.existsSync(AUDIO_FILE)) {
+  AUDIO_FILE = path.join(__dirname, 'barain.mp3');
+}
 const OUTPUT = path.join(OUTPUT_DIR, 'final-video.mp4');
 
 if (!fs.existsSync(OUTPUT_DIR)) {
@@ -18,10 +22,15 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 }
 
 function getDur(file) {
-  const cmd = `${FFMPEG} -i "${file}" 2>&1 | grep Duration | cut -d' ' -f4 | cut -d',' -f1`;
-  const dur = execSync(cmd).toString().trim();
-  const [h,m,s] = dur.split(':').map(Number);
-  return h*3600 + m*60 + s;
+  try {
+    const ffprobe = process.env.FFPROBE_PATH || 'ffprobe';
+    const cmd = `"${ffprobe}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${file}"`;
+    const dur = execSync(cmd).toString().trim();
+    return parseFloat(dur);
+  } catch (e) {
+    console.error(`Error probing duration for ${file}: ${e.message}`);
+    return 5; // Fallback
+  }
 }
 
 function main() {
@@ -74,7 +83,7 @@ function main() {
       `[bg][fg]blend=all_expr='` +
       `if(between(Y,${centerY}-(${halfH}*T/${midDur}),${centerY}+(${halfH}*T/${midDur})),B,A)'` +
       `:shortest=1[out]` +
-      `" -map [out] -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 -t ${midDur} "${OUTPUT_DIR}/middle-curtain.mp4" -y`, {stdio: 'inherit'});
+      `" -map [out] -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 -t ${midDur} "${OUTPUT_DIR}/middle-curtain.mp4" -y`, {stdio: 'inherit', env: process.env});
     console.log('✓ Done\n');
   } catch (err) {
     console.error('❌ Step 2 failed:', err.message);
@@ -88,7 +97,7 @@ function main() {
     const audioMap = fs.existsSync(AUDIO_FILE) ? `-map [out_a] -c:a aac -b:a 192k` : '';
     const audioFilter = fs.existsSync(AUDIO_FILE) ? `;[3:a]anull[out_a]` : '';
 
-    execSync(`${FFMPEG} -i "${OUTPUT_DIR}/extended-main.mp4" -i "${OUTPUT_DIR}/middle-curtain.mp4" -i "${STICKER}" ${audioInput} -filter_complex "` +
+    execSync(`"${FFMPEG}" -i "${OUTPUT_DIR}/extended-main.mp4" -i "${OUTPUT_DIR}/middle-curtain.mp4" -i "${STICKER}" ${audioInput} -filter_complex "` +
       `[0:v]fps=60,scale=1080:1920[v0];` +
       `[1:v]setpts=PTS+${mainDur}/TB,fps=60,scale=1080:1920[mid];` +
       // Smoother sticker animation with cubic easing approximation
@@ -98,7 +107,7 @@ function main() {
       // Add subtle camera shake effect
       `[comp]crop=iw-40:ih-40:20+15*sin(t*7):20+15*cos(t*9)[shake];` +
       `[shake]scale=1080:1920[out_v]${audioFilter}` +
-      `" -map [out_v] ${audioMap} -c:v libx264 -pix_fmt yuv420p -r 60 -t ${total} "${OUTPUT}" -y`, {stdio: 'inherit'});
+      `" -map [out_v] ${audioMap} -c:v libx264 -pix_fmt yuv420p -r 60 -t ${total} "${OUTPUT}" -y`, {stdio: 'inherit', env: process.env});
     
     console.log('\n✅ Done!');
     console.log(`🎉 ${OUTPUT}`);
