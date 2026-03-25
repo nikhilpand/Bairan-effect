@@ -41,6 +41,7 @@ async function extractLastFrame(inputPath, outputPath) {
       ffmpeg(inputPath)
         .seekInput(lastFrameTime)
         .frames(1)
+        .videoFilters("scale='w=min(1080,iw):h=min(1080,ih):force_original_aspect_ratio=decrease'")
         .output(outputPath)
         .on('start', (command) => {
           console.log('FFmpeg command:', command);

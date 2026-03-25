@@ -7,7 +7,19 @@ const https = require('https');
 const http = require('http');
 const FormData = require('form-data');
 const multer = require('multer');
-const tasks = {};
+const TASKS_FILE = 'tasks.json';
+let tasks = {};
+
+// Load tasks from file if it exists
+if (fs.existsSync(TASKS_FILE)) {
+  try {
+    tasks = JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
+    console.log(`Loaded ${Object.keys(tasks).length} tasks from ${TASKS_FILE}`);
+  } catch (err) {
+    console.error('Failed to load tasks.json:', err.message);
+    tasks = {};
+  }
+}
 
 const app = express();
 app.use(cors()); // Enable CORS for all origins (or you can restrict it later)
@@ -35,6 +47,14 @@ console.log('--------------------');
 function updateTaskStatus(requestId, data) {
   if (!tasks[requestId]) tasks[requestId] = { createdAt: Date.now() };
   tasks[requestId] = { ...tasks[requestId], ...data, updatedAt: Date.now() };
+  
+  // Persist to file
+  try {
+    fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
+  } catch (err) {
+    console.error('Failed to save tasks.json:', err.message);
+  }
+
   // Log to server console so user can see it
   console.log(`[ID: ${requestId}] -> ${data.status} | ${data.message || ''}`);
 }
@@ -296,23 +316,32 @@ async function processVideo(videoPath, isUrl = false, zipPath = null, zipUrl = f
     await updateTaskStatus(requestId, { status: 'converting', progress: 20 });
     console.log(`Converting: ${videoPath} -> ${mainVideo}`);
     
-    const { spawnSync } = require('child_process');
-    const convResult = spawnSync(ffmpegPath, [
-      '-i', videoPath,
-      '-c:v', 'libx264',
-      '-c:a', 'aac',
-      '-movflags', '+faststart',
-      '-y',
-      mainVideo
-    ], { 
-      stdio: ['inherit', 'inherit', 'pipe'],
-      env: process.env 
-    });
+    await new Promise((resolve, reject) => {
+      const proc = spawn(ffmpegPath, [
+        '-i', videoPath,
+        '-c:v', 'libx264',
+        '-c:a', 'aac',
+        '-movflags', '+faststart',
+        '-threads', '1', // Limit threads to save memory
+        '-y',
+        mainVideo
+      ], { 
+        stdio: ['ignore', 'ignore', 'pipe'], // Standard out ignore, pipe err
+        env: process.env 
+      });
 
-    if (convResult.status !== 0) {
-      const err = convResult.stderr ? convResult.stderr.toString().split('\n').filter(l => l.trim()).slice(-2).join(' | ') : `Code ${convResult.status}`;
-      throw new Error(`Video conversion failed: ${err}`);
-    }
+      let errData = '';
+      if (proc.stderr) {
+        proc.stderr.on('data', (data) => {
+          errData += data.toString();
+        });
+      }
+
+      proc.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`Video conversion failed (code ${code}): ${errData.slice(-100)}`));
+      });
+    });
     
     console.log(`✅ Converted to MP4: ${mainVideo}`);
 

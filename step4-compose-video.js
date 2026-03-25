@@ -51,11 +51,11 @@ function main() {
   const freezeDuration = total - mainDur;
   try {
     // Extract last frame
-    execSync(`${FFMPEG} -i "${MAIN}" -ss ${mainDur - 0.1} -vframes 1 "${OUTPUT_DIR}/last-frame-for-loop.png" -y`, {stdio: 'inherit'});
+    execSync(`${FFMPEG} -threads 1 -i "${MAIN}" -ss ${mainDur - 0.1} -vframes 1 "${OUTPUT_DIR}/last-frame-for-loop.png" -y`, {stdio: 'inherit'});
     // Create looped video from last frame
-    execSync(`${FFMPEG} -loop 1 -i "${OUTPUT_DIR}/last-frame-for-loop.png" -vf "fps=60,scale=1080:1920" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 -t ${freezeDuration} "${OUTPUT_DIR}/freeze-extension.mp4" -y`, {stdio: 'inherit'});
+    execSync(`${FFMPEG} -threads 1 -loop 1 -i "${OUTPUT_DIR}/last-frame-for-loop.png" -vf "fps=60,scale=1080:1920" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 -t ${freezeDuration} "${OUTPUT_DIR}/freeze-extension.mp4" -y`, {stdio: 'inherit'});
     // Concatenate original + freeze using filter_complex instead of concat demuxer
-    execSync(`${FFMPEG} -i "${MAIN}" -i "${OUTPUT_DIR}/freeze-extension.mp4" -filter_complex "[0:v]fps=60,scale=1080:1920[v0];[1:v]fps=60,scale=1080:1920[v1];[v0][v1]concat=n=2:v=1:a=0[out]" -map [out] -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 "${OUTPUT_DIR}/extended-main.mp4" -y`, {stdio: 'inherit'});
+    execSync(`${FFMPEG} -threads 1 -i "${MAIN}" -i "${OUTPUT_DIR}/freeze-extension.mp4" -filter_complex "[0:v]fps=60,scale=1080:1920[v0];[1:v]fps=60,scale=1080:1920[v1];[v0][v1]concat=n=2:v=1:a=0[out]" -map [out] -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 "${OUTPUT_DIR}/extended-main.mp4" -y`, {stdio: 'inherit'});
     console.log('✓ Done\n');
   } catch (err) {
     console.error('❌ Step 1 failed:', err.message);
@@ -67,17 +67,17 @@ function main() {
   
   try {
     // Scale middle first
-    execSync(`${FFMPEG} -i "${MIDDLE}" -vf "fps=60,scale=1080:1920" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 -t ${midDur} "${OUTPUT_DIR}/middle-scaled.mp4" -y`, {stdio: 'inherit'});
+    execSync(`${FFMPEG} -threads 1 -i "${MIDDLE}" -vf "fps=60,scale=1080:1920" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 -t ${midDur} "${OUTPUT_DIR}/middle-scaled.mp4" -y`, {stdio: 'inherit'});
     
     // Extract frozen frame from extended main and loop it with proper colorspace
-    execSync(`${FFMPEG} -i "${OUTPUT_DIR}/extended-main.mp4" -ss ${mainDur - 0.1} -vframes 1 "${OUTPUT_DIR}/frozen-frame.png" -y`, {stdio: 'inherit'});
-    execSync(`${FFMPEG} -loop 1 -i "${OUTPUT_DIR}/frozen-frame.png" -vf "format=yuv420p,fps=60,scale=1080:1920" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 -t ${midDur} "${OUTPUT_DIR}/frozen-bg.mp4" -y`, {stdio: 'inherit'});
+    execSync(`${FFMPEG} -threads 1 -i "${OUTPUT_DIR}/extended-main.mp4" -ss ${mainDur - 0.1} -vframes 1 "${OUTPUT_DIR}/frozen-frame.png" -y`, {stdio: 'inherit'});
+    execSync(`${FFMPEG} -threads 1 -loop 1 -i "${OUTPUT_DIR}/frozen-frame.png" -vf "format=yuv420p,fps=60,scale=1080:1920" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r 60 -t ${midDur} "${OUTPUT_DIR}/frozen-bg.mp4" -y`, {stdio: 'inherit'});
     
     // Blend with expression - reveal from center expanding outward
     const centerY = 960; // 1920/2
     const halfH = 960;   // 1920/2
     
-    execSync(`${FFMPEG} -i "${OUTPUT_DIR}/frozen-bg.mp4" -i "${OUTPUT_DIR}/middle-scaled.mp4" -filter_complex "` +
+    execSync(`${FFMPEG} -threads 1 -i "${OUTPUT_DIR}/frozen-bg.mp4" -i "${OUTPUT_DIR}/middle-scaled.mp4" -filter_complex "` +
       `[0:v]format=yuv420p[bg];` +
       `[1:v]format=yuv420p[fg];` +
       `[bg][fg]blend=all_expr='` +
@@ -97,7 +97,7 @@ function main() {
     const audioMap = fs.existsSync(AUDIO_FILE) ? `-map [out_a] -c:a aac -b:a 192k` : '';
     const audioFilter = fs.existsSync(AUDIO_FILE) ? `;[3:a]anull[out_a]` : '';
 
-    execSync(`"${FFMPEG}" -i "${OUTPUT_DIR}/extended-main.mp4" -i "${OUTPUT_DIR}/middle-curtain.mp4" -i "${STICKER}" ${audioInput} -filter_complex "` +
+    execSync(`"${FFMPEG}" -threads 1 -i "${OUTPUT_DIR}/extended-main.mp4" -i "${OUTPUT_DIR}/middle-curtain.mp4" -i "${STICKER}" ${audioInput} -filter_complex "` +
       `[0:v]fps=60,scale=1080:1920[v0];` +
       `[1:v]setpts=PTS+${mainDur}/TB,fps=60,scale=1080:1920[mid];` +
       // Smoother sticker animation with cubic easing approximation
